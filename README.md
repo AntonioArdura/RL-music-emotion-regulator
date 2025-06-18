@@ -15,9 +15,9 @@ to guide users from a current emotional state to a target state by selecting son
 ## Setup
 
 ### Clone the repository 
-   `bash
+   ```bash
    git clone https://github.com/your-username/your-repo.git
-   cd your-repo ´ 
+   cd your-repo 
 
 ### Create & activate a virtual environment
 
