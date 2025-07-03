@@ -63,8 +63,8 @@ and save the best checkpoint under ppo_trained_models/best_model.zip.
 
 **Optional flags** (if supported):
 
---timesteps N — total number of training timesteps (e.g. --timesteps 200000).
---env-config path/to/config.json – custom simulator configuration
+- timesteps N — total number of training timesteps (e.g. --timesteps 200000).
+- env-config path/to/config.json – custom simulator configuration
 
 ## Testing the Agent
 Once you have a trained model (e.g. ppo_trained_models/best_model.zip), run:
