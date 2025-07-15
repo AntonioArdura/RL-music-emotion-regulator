@@ -1,59 +1,58 @@
 import os
-import random
 import time
 
 import numpy as np
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
+import pandas as pd
 from stable_baselines3 import PPO
 
-# Import the simulator environment class from your other file
+# Import your simulator
 from user_emotional_simulator import (EMOTION_VA_MAP, SIM_CONFIG,
                                       UserEmotionalSimulator)
 
 # --- CONFIGURATION ---
 MODEL_PATH = os.path.join("ppo_trained_models", "best_model", "best_model.zip")
+# --- CAMBIO 1: Apuntar al nuevo archivo CSV ---
+# Asegúrate de que el nombre del archivo del nuevo dataset sea este, o ajústalo.
+SONG_DATASET_PATH = "tracks_features.csv" 
 
-# --- SPOTIFY API CREDENTIALS ---
-# Make sure these are correct and match your Spotify Developer Dashboard
-SPOTIPY_CLIENT_ID='5a8e257a3dac4135932503545b86deb1'
-SPOTIPY_CLIENT_SECRET='888c409317774bfd9bb2f0d5ebe8a715'
-SPOTIPY_REDIRECT_URI='http://127.0.0.1:8888/callback'
-
-def setup_spotify_client():
-    """ Sets up and authenticates the Spotipy client. """
+# --- FUNCIÓN CORREGIDA ---
+def load_song_dataset(path):
+    """ Loads the song dataset from the new CSV file. """
+    print(f"Loading song dataset from {path}...")
     try:
-        # Pide permisos para leer las canciones más escuchadas del usuario
-        scope = "user-top-read"
-        auth_manager = SpotifyOAuth(
-            client_id=SPOTIPY_CLIENT_ID,
-            client_secret=SPOTIPY_CLIENT_SECRET,
-            redirect_uri=SPOTIPY_REDIRECT_URI,
-            scope=scope,
-            open_browser=False # Avoids opening a new browser tab if a token is already cached
-        )
-        sp = spotipy.Spotify(auth_manager=auth_manager)
+        # --- CAMBIO 2: Nombres de las columnas actualizados ---
+        # El nuevo dataset usa 'artists' y 'name' en lugar de 'artist_name' y 'track_name'.
+        # También, el modo ya viene como un número (0 o 1), no como 'Major'/'Minor'.
+        columns_to_read = ['artists', 'name', 'valence', 'energy', 'tempo', 'mode', 'danceability']
+        df = pd.read_csv(path, usecols=columns_to_read)
         
-        # TOKEN TEST: Get and print the current user's display name to confirm it works
-        user_info = sp.me()
-        print(f"✅ Spotify client authenticated successfully for user: {user_info['display_name']}")
-        return sp
-        
+        # Limpieza de datos: eliminar filas con valores nulos en las columnas que nos interesan
+        df.dropna(subset=columns_to_read, inplace=True)
+        # Limpieza de datos: el nombre del artista a veces es una lista en formato string, lo limpiamos
+        # y nos quedamos solo con el primer artista para simplificar.
+        df['artists'] = df['artists'].apply(lambda x: x.strip("[]").strip("'").split("',")[0].strip("'"))
+
+        library = df.to_dict('records')
+        print(f"✅ Dataset loaded successfully with {len(library)} songs.")
+        return library
+    except FileNotFoundError:
+        print(f"❌ ERROR: Song dataset file not found at '{path}'.")
+        print("   Please download 'tracks.csv' from the Kaggle dataset and place it in your project folder.")
+        return None
     except Exception as e:
-        print(f"\n--- Spotify Authentication Error --- \nError details: {e}\n-------------------------------------\n")
+        print(f"❌ ERROR: Could not load or parse song dataset. Details: {e}")
         return None
 
-# --- NEW ROBUST VERSION OF THE FUNCTION ---
-def get_song_from_spotify(agent_action_vector, sp_client, seed_info={"genres": ["pop", "rock", "chill", "acoustic", "electronic", "dance"]}):
+# --- FUNCIÓN CORREGIDA ---
+def get_song_from_dataset(agent_action_vector, library):
     """
-    Takes the agent's action vector and robustly retrieves a matching song from Spotify
-    using the correct API format and a multi-step fallback system.
+    Finds the best matching song from the local library based on the agent's action.
     """
-    if not sp_client:
-        print("--> Spotify client not available. Skipping song retrieval.")
+    if not library:
+        print("--> Song library is not available. Skipping song retrieval.")
         return None
 
-    # 1. De-normalize the agent's action & convert to Python native types
+    # 1. De-normalize the agent's action to target values
     target_v = float((agent_action_vector[0] + 1.0) / 2.0)
     target_a = float((agent_action_vector[1] + 1.0) / 2.0)
     target_t_0_1 = float((agent_action_vector[2] + 1.0) / 2.0)
@@ -66,70 +65,37 @@ def get_song_from_spotify(agent_action_vector, sp_client, seed_info={"genres": [
 
     print(f"--> Agent wants profile: V={target_v:.2f}, E={target_a:.2f}, T={target_t_bpm:.0f}, M={target_m_binary}, D={target_d:.2f}")
 
-    # 2. Prepare the seed parameters for spotipy
-    seed_artists = seed_info.get('artist_ids', [])
-    seed_tracks = seed_info.get('track_ids', [])
-    seed_genres = seed_info.get('genres', [])
+    best_song = None
+    min_distance = float('inf')
 
-    recs = None
-    try:
-        # --- PLAN A: SPECIFIC SEARCH ---
-        # print("--> Attempting specific search (Plan A)...")
-        recs = sp_client.recommendations(
-            seed_artists=seed_artists,
-            seed_genres=seed_genres,
-            seed_tracks=seed_tracks,
-            limit=10, 
-            target_valence=target_v,
-            target_energy=target_a, 
-            target_tempo=target_t_bpm,
-            target_mode=target_m_binary,
-            target_danceability=target_d
-        )
-        if recs and recs['tracks']:
-            print("--> Success with specific search (Plan A).")
-            track = recs['tracks'][0]
-            return {"name": track['name'], "artist": track['artists'][0]['name'], "id": track['id'], "url": track['external_urls']['spotify']}
+    target_t_norm = (target_t_bpm - min_bpm) / (max_bpm - min_bpm)
+    target_vector = np.array([target_v, target_a, target_t_norm, float(target_m_binary), target_d])
 
-        # --- PLAN B: BROAD SEARCH (V-A + SEEDS) ---
-        print("--> Specific search failed. Trying broader search (Plan B)...")
-        recs = sp_client.recommendations(
-            seed_artists=seed_artists,
-            seed_genres=seed_genres,
-            seed_tracks=seed_tracks,
-            limit=10, 
-            target_valence=target_v, 
-            target_energy=target_a
-        )
-        if recs and recs['tracks']:
-            print("--> Success with broad search (Plan B).")
-            track = recs['tracks'][0]
-            return {"name": track['name'], "artist": track['artists'][0]['name'], "id": track['id'], "url": track['external_urls']['spotify']}
+    # 2. Search for the closest song in the library
+    for song in library:
+        song_tempo_norm = (song['tempo'] - min_bpm) / (max_bpm - min_bpm)
         
-        # --- PLAN C: SAFEST SEARCH (SEEDS ONLY) ---
-        print("--> Broad search failed. Trying safest search (Plan C)...")
-        recs = sp_client.recommendations(
-            seed_artists=seed_artists,
-            seed_genres=seed_genres,
-            seed_tracks=seed_tracks,
-            limit=10
-        )
-        if recs and recs['tracks']:
-            print("--> Success with safest search (Plan C).")
-            track = recs['tracks'][0]
-            return {"name": track['name'], "artist": track['artists'][0]['name'], "id": track['id'], "url": track['external_urls']['spotify']}
+        # --- CAMBIO 3: El modo ya es un número (0 o 1) en este dataset ---
+        # Ya no necesitamos convertir de 'Major'/'Minor' a float.
+        song_mode_float = float(song['mode'])
+        
+        song_vector = np.array([
+            song['valence'], song['energy'], song_tempo_norm,
+            song_mode_float,
+            song['danceability']
+        ])
+        
+        distance = np.linalg.norm(target_vector - song_vector)
+        
+        if distance < min_distance:
+            min_distance = distance
+            best_song = song
 
-        print("--> All searches failed. No recommendations found.")
-        return None
+    return best_song
 
-    except Exception as e:
-        print(f"--> An unexpected error occurred while fetching from Spotify: {e}")
-        return None
-
-
-def test_trained_agent(model_path, start_emotion, target_emotion, sp_client):
+def test_trained_agent(model_path, start_emotion, target_emotion, library):
     """
-    Loads a trained PPO model and runs one episode, searching for real songs.
+    Loads a trained PPO model and runs one episode, finding songs from the local library.
     """
     print(f"\n--- Testing Transition: {start_emotion.upper()} -> {target_emotion.upper()} ---")
     
@@ -139,23 +105,11 @@ def test_trained_agent(model_path, start_emotion, target_emotion, sp_client):
         print(f"Error: Model not found at {model_path}.")
         return
 
-    # Get user's top tracks to use as recommendation seeds
-    top_tracks = sp_client.current_user_top_tracks(limit=1, time_range='short_term')
-    seed_info_for_test = {'genres': ['pop', 'rock']} # Fallback if no top tracks
-    if top_tracks and top_tracks['items']:
-        top_track = top_tracks['items'][0]
-        # Use both the track and its artist as seeds for better results
-        seed_info_for_test = {'track_ids': [top_track['id']], 'artist_ids': [top_track['artists'][0]['id']]}
-        print(f"Using user's top track and artist as seeds: '{top_track['name']}' by {top_track['artists'][0]['name']}")
-    else:
-        print("Could not get user's top tracks, using default seed genres.")
-    
     env = UserEmotionalSimulator(config=SIM_CONFIG)
     obs, info = env.reset()
 
     env.current_V, env.current_A = EMOTION_VA_MAP[start_emotion]
     env.target_V, env.target_A = EMOTION_VA_MAP[target_emotion]
-    env.initial_distance_to_target = env._calculate_distance(env.current_V, env.current_A, env.target_V, env.target_A)
     obs = env._get_observation()
     
     print("Initial State:")
@@ -165,15 +119,12 @@ def test_trained_agent(model_path, start_emotion, target_emotion, sp_client):
         action, _states = model.predict(obs, deterministic=True)
         
         print(f"\nStep {i+1} -> Agent's Action (Target Musical Profile):")
-        # --- CORRECTION APPLIED HERE ---
-        # The variable was 'action_d' which is not defined. 
-        # It should be action[4] to access the 5th element (Danceability).
         print(f"  V={action[0]:.2f}, A={action[1]:.2f}, T={action[2]:.2f}, M={action[3]:.2f}, D={action[4]:.2f}")
         
-        recommended_song = get_song_from_spotify(action, sp_client, seed_info=seed_info_for_test)
+        recommended_song = get_song_from_dataset(action, library)
         if recommended_song:
-            print(f"  Spotify Suggestion: '{recommended_song['name']}' by {recommended_song['artist']}")
-            print(f"  URL: {recommended_song['url']}")
+            # --- CAMBIO 4: Usar los nuevos nombres de columna para imprimir ---
+            print(f"  Dataset Suggestion: '{recommended_song['name']}' by {recommended_song['artists']}")
         else:
             print("  No song suggestion was found for this step.")
 
@@ -184,26 +135,20 @@ def test_trained_agent(model_path, start_emotion, target_emotion, sp_client):
 
         if terminated or truncated:
             print("\nEpisode finished.")
-            if terminated:
-                print("SUCCESS: Target emotion reached within the simulator!")
-            if truncated:
-                print("NOTE: Maximum steps reached.")
+            if terminated: print("SUCCESS: Target emotion reached within the simulator!")
+            if truncated: print("NOTE: Maximum steps reached.")
             break
             
     env.close()
 
 
 if __name__ == '__main__':
-    spotify_client = setup_spotify_client()
+    song_library = load_song_dataset(SONG_DATASET_PATH)
     
-    if spotify_client:
+    if song_library:
         if not os.path.exists(MODEL_PATH):
             print("="*50)
             print(f"FATAL ERROR: The trained model was not found at '{MODEL_PATH}'")
-            print("Please make sure you have run the training script and that a 'best_model.zip' was successfully saved.")
-            print("="*50)
         else:
-            # --- RUN TESTS ---
-            test_trained_agent(MODEL_PATH, start_emotion="Sad", target_emotion="Happy", sp_client=spotify_client)
-            test_trained_agent(MODEL_PATH, start_emotion="Tense", target_emotion="Calm", sp_client=spotify_client)
-            test_trained_agent(MODEL_PATH, start_emotion="Happy", target_emotion="Content", sp_client=spotify_client)
+            test_trained_agent(MODEL_PATH, start_emotion="Sad", target_emotion="Happy", library=song_library)
+            test_trained_agent(MODEL_PATH, start_emotion="Tense", target_emotion="Calm", library=song_library)
