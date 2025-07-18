@@ -5,9 +5,9 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
 # --- YOUR CREDENTIALS ---
-CLIENT_ID     = "5a8e257a3dac4135932503545b86deb1"
-CLIENT_SECRET = "888c409317774bfd9bb2f0d5ebe8a715"
-REDIRECT_URI  = "http://127.0.0.1:8888/callback"
+CLIENT_ID     = ""
+CLIENT_SECRET = ""
+REDIRECT_URI  = ""
 # Scope needed to read a user's private and public playlists
 SCOPE         = "playlist-read-private" 
 
