@@ -89,6 +89,6 @@ This will read the real\_interactions\_rating.json file and print a summary tabl
 
 ## **(Optional) Creating a Custom Song Library via Spotify API**
 
-The project initially included scripts to create a custom song library using the Spotify API (create\_spanish\_library.py). Due to recent API restrictions that block access to key endpoints like /v1/audio-features for new developer apps, these scripts may not work for you.
+The project initially included scripts to create a custom song library using the Spotify API (create\_song\_library.py). Due to recent API restrictions that block access to key endpoints like /v1/audio-features for new developer apps, these scripts may not work for you.
 
 If you have an older, established Spotify Developer App, you can try them. This requires setting your credentials as environment variables first.
