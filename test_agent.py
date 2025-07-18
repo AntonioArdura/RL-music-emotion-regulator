@@ -11,8 +11,6 @@ from user_emotional_simulator import (EMOTION_VA_MAP, SIM_CONFIG,
 
 # --- CONFIGURATION ---
 MODEL_PATH = os.path.join("ppo_trained_models", "best_model", "best_model.zip")
-# --- CAMBIO 1: Apuntar al nuevo archivo CSV ---
-# Asegúrate de que el nombre del archivo del nuevo dataset sea este, o ajústalo.
 SONG_DATASET_PATH = "tracks_features.csv" 
 
 # --- FUNCIÓN CORREGIDA ---
@@ -20,9 +18,6 @@ def load_song_dataset(path):
     """ Loads the song dataset from the new CSV file. """
     print(f"Loading song dataset from {path}...")
     try:
-        # --- CAMBIO 2: Nombres de las columnas actualizados ---
-        # El nuevo dataset usa 'artists' y 'name' en lugar de 'artist_name' y 'track_name'.
-        # También, el modo ya viene como un número (0 o 1), no como 'Major'/'Minor'.
         columns_to_read = ['artists', 'name', 'valence', 'energy', 'tempo', 'mode', 'danceability']
         df = pd.read_csv(path, usecols=columns_to_read)
         
@@ -75,8 +70,7 @@ def get_song_from_dataset(agent_action_vector, library):
     for song in library:
         song_tempo_norm = (song['tempo'] - min_bpm) / (max_bpm - min_bpm)
         
-        # --- CAMBIO 3: El modo ya es un número (0 o 1) en este dataset ---
-        # Ya no necesitamos convertir de 'Major'/'Minor' a float.
+        # El modo ya es un número (0 o 1) en este dataset ---
         song_mode_float = float(song['mode'])
         
         song_vector = np.array([
@@ -123,7 +117,7 @@ def test_trained_agent(model_path, start_emotion, target_emotion, library):
         
         recommended_song = get_song_from_dataset(action, library)
         if recommended_song:
-            # --- CAMBIO 4: Usar los nuevos nombres de columna para imprimir ---
+            # Usar los nuevos nombres de columna para imprimir ---
             print(f"  Dataset Suggestion: '{recommended_song['name']}' by {recommended_song['artists']}")
         else:
             print("  No song suggestion was found for this step.")
